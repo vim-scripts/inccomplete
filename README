@@ -1,0 +1,12 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=3345
+
+This is a completion plugin for C/C++/ObjC/ObjC++ preprocessors include directive.
+
+It can complete both \"\" and <> forms of #include.
+For \"\" it gets all header files in the current directory (so it&#039s assumed that you have something similar to \"autocmd BufEnter,BufWinEnter * lcd %:p:h\" in your .vimrc).
+And for <> it gets all files that have hpp or h extensions or don&#039t have any.
+
+It uses GNU find utility to find header files.
+
+You could always find the latest version on github: http://github.com/xaizek/vim-inccomplete 
+Feel free to contact me if you have any question or suggestions.
