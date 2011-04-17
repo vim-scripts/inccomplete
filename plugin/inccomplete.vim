@@ -1,6 +1,6 @@
 " Name:          inccomplete
 " Author:        xaizek (xaizek@gmail.com)
-" Version:       1.3.10
+" Version:       1.3.12
 "
 " Description:   This is a completion plugin for C/C++/ObjC/ObjC++ preprocessors
 "                include directive. It can be used along with clang_complete
@@ -16,7 +16,7 @@
 "                don't have any.
 "
 "                Only files of include directories are displayed in completion
-"                list, but you can complete file of subdirectories of include
+"                list, but you can complete files in subdirectories of include
 "                directories too. All you need is to call completion again after
 "                typing subdirectory name and slash (and maybe beginning of
 "                file name).
@@ -98,7 +98,7 @@ function! ICComplete(findstart, base)
         endif
         return eval(s:oldomnifuncs[l:curbuf].
                   \ "(".a:findstart.",'".a:base."')")
-    elseif s:passnext
+    elseif exists('s:passnext') && s:passnext
         " call previous 'omnifunc' when needed
         if !has_key(s:oldomnifuncs, l:curbuf)
             return []
@@ -128,12 +128,15 @@ endfunction
 
 " filters search results
 function! s:ICFilterIncLst(inclst, base)
+    let l:iswindows = has('win16') || has('win32') || has('win64') ||
+                \ has('win95') || has('win32unix')
+
     " determine type of slash
     let l:base = a:base
     let l:pos = strridx(a:base, '/')
     let l:sl1 = '/'
     let l:sl2 = '/'
-    if l:pos < 0
+    if (len(a:base) == 0 && l:iswindows) || (len(a:base) != 0 && l:pos < 0)
         let l:pos = strridx(a:base, '\')
         let l:sl1 = '\\\\'
         let l:sl2 = '\'
@@ -215,7 +218,7 @@ function! s:ICFindIncludes(user, pathlst)
     let l:pathstr = join(map(copy(a:pathlst), l:substcmd), ' ')
 
     " execute find
-    let l:found = system(g:inccomplete_findcmd.' '.
+    let l:found = system(g:inccomplete_findcmd.' -L '.
                        \ l:pathstr.' -maxdepth 1 -type f'.l:iregex)
     let l:foundlst = split(l:found, '\n')
     unlet l:found " to free some memory
