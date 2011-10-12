@@ -6,9 +6,16 @@ It can complete both \"\" and <> forms of #include.
 For \"\" it gets all header files in the current directory (so it&#039s assumed that you have something similar to \"autocmd BufEnter,BufWinEnter * lcd %:p:h\" in your .vimrc).
 And for <> it gets all files that have hpp or h extensions or don&#039t have any.
 
-Only files of include directories are displayed in completion list, but you can complete files in subdirectories of include directories too. All you need is to call completion again after typing subdirectory name and slash (and maybe beginning of file name).
+You can complete files and directories.
 
-It uses GNU find utility to find header files.
+It can be configured to use GNU find utility if you think it's faster than using VimL functions.
+
+Source for "" completion is current directory (so you should have 'autochdir' option on or use lcd with autocommand).
+
+Sources for <> completion are:
+ - 'path' option (on *nix it's set to '/usr/include' by default, but on Windows you should set it to the right directories manually)
+ - g:clang_user_options ('-I' keys)
+ - b:clang_user_options ('-I' keys) 
 
 You could always find the latest version on github: http://github.com/xaizek/vim-inccomplete 
-Feel free to contact me if you have any question or suggestions.
+Feel free to contact me if you have any questions or suggestions.

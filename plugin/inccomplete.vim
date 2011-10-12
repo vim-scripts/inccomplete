@@ -1,54 +1,11 @@
-" Name:          inccomplete
-" Author:        xaizek (xaizek@gmail.com)
-" Version:       1.3.20
+" Name:    inccomplete
+" Author:  xaizek <xaizek@gmail.com>
+" Version: 1.5.21
+" License: Same terms as Vim itself (see :help license)
 "
-" Description:   This is a completion plugin for C/C++/ObjC/ObjC++ preprocessors
-"                include directive. It can be used along with clang_complete
-"                (http://www.vim.org/scripts/script.php?script_id=3302) plugin.
-"                And maybe with some others that I haven't tested.
-"
-"                It can complete both "" and <> forms of #include.
-"                For "" it gets all header files in the current directory (so
-"                it's assumed that you have something similar to
-"                autocmd BufEnter,BufWinEnter * lcd %:p:h
-"                in your .vimrc).
-"                And for <> it gets all files that have hpp or h extensions or
-"                don't have any.
-"
-"                Only files of include directories are displayed in completion
-"                list, but you can complete files in subdirectories of include
-"                directories too. All you need is to call completion again after
-"                typing subdirectory name and slash (and maybe beginning of
-"                file name).
-"
-" Configuration: g:inccomplete_findcmd - command to run GNU find program
-"                default: 'find'
-"                Note: On Windows you need to have Cygwin installed and to set
-"                      full path to find utility. For example, like this:
-"                      let g:inccomplete_findcmd = 'c:/cygwin/bin/find'
-"                      Or it can be any find utility that accepts the following
-"                      parameters and multiple search paths:
-"                      -maxdepth 1 -type f
-"
-"                g:inccomplete_addclosebracket - how to add close bracket
-"                default: 'always'
-"                When this option equals 'always' close bracket will be added
-"                right after open bracket was pressed. Otherwise it will be
-"                added after completion is over.
-"
-"                g:inccomplete_sort - how to sort completion list
-"                default: ''
-"                When this option equals 'ignorecase' the case of letters of
-"                filenames will be ignored.
-"
-" ToDo:          - Maybe 'path' option should be replaced with some global
-"                  variable like g:inccomplete_incpath?
-"                - Is it possible to do file searching using only VimL?
-"                - Maybe '.' in path should be automatically replaced with the
-"                  path to current buffer instead of assuming that working
-"                  directory is correct?
+" See :help inccomplete for documentation.
 
-if exists("g:loaded_inccomplete")
+if exists('g:loaded_inccomplete')
     finish
 endif
 
@@ -56,7 +13,7 @@ let g:loaded_inccomplete = 1
 let g:inccomplete_cache = {}
 
 if !exists('g:inccomplete_findcmd')
-    let g:inccomplete_findcmd = 'find'
+    let g:inccomplete_findcmd = ''
 endif
 
 if !exists('g:inccomplete_addclosebracket')
@@ -67,13 +24,21 @@ if !exists('g:inccomplete_sort')
     let g:inccomplete_sort = ''
 endif
 
+if !exists('g:inccomplete_showdirs')
+    let g:inccomplete_showdirs = 0
+endif
+
 autocmd FileType c,cpp,objc,objcpp call s:ICInit()
 
-" maps < and ", sets 'omnifunc'
+" maps <, ", / and \, sets 'omnifunc'
 function! s:ICInit()
     " remap < and "
     inoremap <expr> <buffer> < ICCompleteInc('<')
     inoremap <expr> <buffer> " ICCompleteInc('"')
+    if g:inccomplete_showdirs
+        inoremap <expr> <buffer> / ICCompleteInc('/')
+        inoremap <expr> <buffer> \ ICCompleteInc('\')
+    endif
 
     " save current 'omnifunc'
     let l:curbuf = fnamemodify(bufname('%'), ':p')
@@ -86,9 +51,15 @@ function! s:ICInit()
     setlocal omnifunc=ICComplete
 endfunction
 
-" checks whether we need to do completion after < or " and starts it when we do.
-" a:bracket is '<' or '"'
+" checks whether we need to do completion after <, ", / or \ and starts it when
+" we do.
 function! ICCompleteInc(bracket)
+    if a:bracket == '/' || a:bracket == '\'
+        if getline('.') =~ '^\s*#\s*include\s*["<].*$'
+            return a:bracket."\<c-x>\<c-o>"
+        endif
+    endif
+
     " is it #include directive?
     if getline('.') !~ '^\s*#\s*include\s*$'
         return a:bracket
@@ -149,8 +120,17 @@ function! ICComplete(findstart, base)
         " form list of dictionaries
         let l:comlst = []
         for l:increc in l:inclst
+            if empty(l:increc[1])
+                continue
+            endif
+
+            if isdirectory(l:increc[0].l:increc[1])
+                let l:bracket = ''
+            else
+                let l:bracket = l:closebracket
+            endif
             let l:item = {
-                        \ 'word': l:increc[1].l:closebracket,
+                        \ 'word': l:increc[1].l:bracket,
                         \ 'abbr': l:increc[1],
                         \ 'menu': l:increc[0],
                         \ 'dup': 1
@@ -189,7 +169,7 @@ function! s:ICFilterIncLst(user, inclst, base)
     let l:pos = strridx(a:base, '/')
     let l:sl1 = '/'
     let l:sl2 = '/'
-    if l:iswindows && (len(a:base) == 0 || (len(a:base) != 0 && l:pos < 0))
+    if l:iswindows && (empty(a:base) || l:pos < 0)
         let l:pos = strridx(a:base, '\')
         let l:sl1 = '\\\\'
         let l:sl2 = '\'
@@ -214,7 +194,11 @@ function! s:ICFilterIncLst(user, inclst, base)
         else
             let l:dirend1 = l:dirend0
         endif
-        let l:dirend2 = escape(l:dirend1, '\')
+        if l:sl1 == '/'
+            let l:dirend2 = substitute(l:dirend1, "\\\\", "/", "g")
+        else
+            let l:dirend2 = escape(l:dirend1, '\')
+        endif
         if a:user
             call filter(l:inclst, 'v:val[0] =~ "^".l:dirend2')
         else
@@ -244,7 +228,7 @@ function! s:ICGetList(user, base)
     call map(l:pathlst, 'fnamemodify(v:val, ":p")')
     call reverse(sort(l:pathlst))
 
-    " divide it into to sublists
+    " divide it into sublists
     let l:noncached = filter(copy(l:pathlst),
                            \ '!has_key(g:inccomplete_cache, v:val)')
     let l:cached = filter(l:pathlst, 'has_key(g:inccomplete_cache, v:val)')
@@ -264,25 +248,45 @@ endfunction
 " gets list of header files using find
 function! s:ICFindIncludes(user, pathlst)
     " test arguments
-    if len(a:pathlst) == 0
+    if empty(a:pathlst)
         return []
     endif
     if a:user == 0
-        let l:iregex = ' -iregex '.shellescape('.*/[-_a-z0-9]+\(\.hpp\|\.h\)?$')
+        if empty(g:inccomplete_findcmd)
+            let l:regex = '.*[/\\][-_a-z0-9]\+\(\.hpp\|\.h\)\?$'
+        else
+            let l:regex = '.*[/\\][-_a-z0-9]+\(\.hpp\|\.h\)?$'
+        endif
     else
-        let l:iregex = ' -iregex '.shellescape('.*\(\.hpp\|\.h\)$')
+        let l:regex = '.*\(\.hpp\|\.h\)$'
     endif
 
-    " substitute in the next command is for Windows (it removes backslash in
-    " \" sequence, that can appear after escaping the path)
-    let l:substcmd = 'substitute(shellescape(v:val), ''\(.*\)\\\"$'','.
-                   \ ' "\\1\"", "")'
-    let l:pathstr = join(map(copy(a:pathlst), l:substcmd), ' ')
-
     " execute find
-    let l:found = system(g:inccomplete_findcmd.' -L '.
-                       \ l:pathstr.' -maxdepth 1 -type f'.l:iregex)
-    let l:foundlst = split(l:found, '\n')
+    if empty(g:inccomplete_findcmd)
+        let l:pathstr = substitute(join(a:pathlst, ','), '\\', '/', 'g')
+        let l:found = globpath(l:pathstr, '*', 1)
+        let l:foundlst = split(l:found, '\n')
+
+        if g:inccomplete_showdirs
+            call filter(l:foundlst,
+                      \ "v:val =~ '".l:regex."' || isdirectory(v:val)")
+        else
+            call filter(l:foundlst, "v:val =~ '".l:regex."'")
+        endif
+    else
+        " substitute in the next command is for Windows (it removes backslash in
+        " \" sequence, that can appear after escaping the path)
+        let l:substcmd = 'substitute(shellescape(v:val), ''\(.*\)\\\"$'','.
+                       \ ' "\\1\"", "")'
+
+
+        let l:pathstr = join(map(copy(a:pathlst), l:substcmd), ' ')
+        let l:iregex = ' -iregex '.shellescape(l:regex)
+        let l:dirs = g:inccomplete_showdirs ? ' -or -type d' : ''
+        let l:found = system(g:inccomplete_findcmd.' -L '.
+                           \ l:pathstr.' -maxdepth 1 -type f'.l:iregex.l:dirs)
+        let l:foundlst = split(l:found, '\n')
+    endif
     unlet l:found " to free some memory
 
     " prepare a:pathlst by forming regexps
@@ -298,7 +302,7 @@ function! s:ICFindIncludes(user, pathlst)
         let l:file = substitute(l:file, '\', '/', 'g')
         " find appropriate path
         let l:pathlst = filter(copy(a:pathlst), 'l:file =~ v:val[1]')
-        if len(l:pathlst) == 0
+        if empty(l:pathlst)
             continue
         endif
         let l:incpath = l:pathlst[0]
