@@ -10,7 +10,7 @@ You can complete files and directories.
 
 It can be configured to use GNU find utility if you think it's faster than using VimL functions.
 
-Source for "" completion is current directory (so you should have 'autochdir' option on or use lcd with autocommand).
+Source for "" completion is directory in which current file is located.
 
 Sources for <> completion are:
  - 'path' option (on *nix it's set to '/usr/include' by default, but on Windows you should set it to the right directories manually)
