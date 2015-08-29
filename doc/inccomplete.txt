@@ -1,4 +1,4 @@
-*inccomplete.txt*	For Vim version 7.3.  Last change: 2012 Oct 13
+*inccomplete.txt*	For Vim version 7.3.  Last change: 2015 Aug 29
 
 
 		  inccomplete plugin documentation    by xaizek
@@ -10,7 +10,7 @@ inccomplete plugin					*inccomplete*
 2. Configuration		|inccomplete-configuration|
 3. ToDo		       	 	|inccomplete-todo|
 
-Author:  xaizek <xaizek@lavabit.com>         		*inccomplete-author*
+Author:  xaizek <xaizek@openmailbox.org>       		*inccomplete-author*
 License: Same terms as Vim itself (see |license|)
 
 ==============================================================================
@@ -114,6 +114,14 @@ If value of this option evaluates to true, the plugin will append a slash
 to directory name completion items. Otherwise slashes will be added in the
 menu only.
 
+root for local includes				*inccomplete-root*
+						*b:inccomplete_root*
+						 type: string
+						 default: not set
+
+When this option if set for current buffer, the plugin uses it as base
+directory for local completion.
+
 ==============================================================================
 3. ToDo						*inccomplete-todo*
 
@@ -122,5 +130,6 @@ menu only.
 - Maybe '.' in path should be automatically replaced with the path to current
   buffer instead of assuming that working directory is correct?
 - Add optional caching for local includes (ones in the double quotes).
+- Maybe filter out includes that already present in the buffer.
 
  vim:tw=78:ts=8:ft=help:norl:

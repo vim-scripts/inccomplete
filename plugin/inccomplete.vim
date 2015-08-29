@@ -1,7 +1,6 @@
 " Name:            inccomplete
-" Author:          xaizek  <xaizek@lavabit.com>
-" Maintainers:     drougas <drougas@cs.ucr.edu>
-" Version:         1.6.32
+" Author:          xaizek  <xaizek@openmailbox.org>
+" Version:         1.7.40
 " License:         Same terms as Vim itself (see :help license)
 "
 " See :help inccomplete for documentation.
@@ -37,10 +36,31 @@ if !exists('g:inccomplete_appendslash')
     let g:inccomplete_appendslash = 0
 endif
 
-autocmd FileType c,cpp,objc,objcpp call s:ICInit()
+" initialize inccomplete after all other plugins are loaded
+augroup inccompleteDeferredInit
+    autocmd!
+    autocmd VimEnter * call s:ICInstallAutocommands()
+augroup END
+
+function s:ICInstallAutocommands()
+    augroup inccomplete
+        autocmd!
+        autocmd BufRead,BufEnter,FileType * call s:ICInit()
+    augroup END
+
+    " VimEnter autocommand is executed after other autocommands we're
+    " interested in, thus we need to do this for file passed on the command
+    " line manually
+    call s:ICInit()
+endfunction
 
 " maps <, ", / and \, sets 'omnifunc'
 function! s:ICInit()
+    " leave fast if we don't need to do anything for the buffer
+    if !s:ICIsBufferSupported() || &l:omnifunc ==# 'ICComplete'
+        return
+    endif
+
     " remap < and "
     inoremap <expr> <buffer> < ICCompleteInc('<')
     inoremap <expr> <buffer> " ICCompleteInc('"')
@@ -50,13 +70,13 @@ function! s:ICInit()
     endif
 
     " save current 'omnifunc'
-    let l:curbuf = expand('%:p')
+    let l:curbuf = s:ICGetBufferName()
     if !exists('s:oldomnifuncs')
         let s:oldomnifuncs = {}
     endif
     let s:oldomnifuncs[l:curbuf] = &omnifunc
 
-    " Force menuone. Without it, when there's only one completion result,
+    " force menuone. Without it, when there's only one completion result,
     " it can be confusing (not completing and no popup)
     if g:inccomplete_autoselect != 2
         setlocal completeopt-=menu
@@ -67,10 +87,19 @@ function! s:ICInit()
     setlocal omnifunc=ICComplete
 endfunction
 
+" checks whether the plugin should be active in current buffer
+function s:ICIsBufferSupported()
+    for l:component in split(&l:filetype, '\.')
+        if index(['c', 'cpp'], l:component) != -1
+            return 1
+        endif
+    endfor
+    return 0
+endfunction
+
 " checks whether we need to do completion after <, ", / or \ and starts it when
 " we do.
 function! ICCompleteInc(bracket)
-
     let l:keycomp = "\<c-x>\<c-o>"
     if g:inccomplete_autoselect != 2
         let l:keycomp .= "\<c-p>"
@@ -104,7 +133,7 @@ endfunction
 
 " this is the 'omnifunc'
 function! ICComplete(findstart, base)
-    let l:curbuf = expand('%:p')
+    let l:curbuf = s:ICGetBufferName()
     if a:findstart
         " did user request #include completion?
         let s:passnext = getline('.') !~ '^\s*#\s*include\s*\%(<\|"\)'
@@ -236,34 +265,53 @@ function! s:ICFilterIncLst(user, inclst, base)
         call map(l:inclst, '[substitute(v:val[0], "/", "\\\\", "g"), v:val[1]]')
     endif
 
+    " handle multicomponent paths (e.g. "a/...", <boost/...>)
     if l:pos >= 0
-        " filter by subdirectory name
-        let l:dirend0 = a:base[:l:pos]
-        if a:user
-            let l:dirend1 = fnamemodify(expand('%:p:h').'/'.l:dirend0, ':p')
-        else
-            let l:dirend1 = l:dirend0
+        let l:lst = s:ICFilter(a:user, l:inclst, a:base, s:ICGetDir())
+        if exists('b:inccomplete_root')
+            let l:lst += s:ICFilter(a:user, l:inclst, a:base,
+                                  \ b:inccomplete_root)
         endif
-        if l:sl1 == '/'
-            let l:dirend2 = substitute(l:dirend1, "\\\\", "/", "g")
-        else
-            let l:dirend2 = escape(l:dirend1, '\')
-        endif
-        if a:user
-            call filter(l:inclst, 'v:val[0] =~ "^".l:dirend2."[\\/]*$"')
-        else
-            call filter(l:inclst, 'v:val[0] =~ "'.l:sl1.'".l:dirend2."$"')
-        endif
+        let l:inclst = l:lst
+    endif
 
-        " move end of each path to the beginning of filename
-        let l:cutidx = - (l:pos + 2)
-        if !empty(l:inclst) && l:inclst[0][0][l:cutidx + 1:] != l:dirend0
-                    \ && a:user
-            let l:path = expand('%:p:h')
-            call map(l:inclst, '[l:path, l:dirend0.v:val[1]]')
-        else
-            call map(l:inclst, '[v:val[0][:l:cutidx], l:dirend0.v:val[1]]')
-        endif
+    return l:inclst
+endfunction
+
+" filters multicomponent paths
+function! s:ICFilter(user, inclst, base, dir)
+    let [l:pos, l:sl1, l:sl2] = s:ICParsePath(a:base)
+
+    let l:inclst = copy(a:inclst)
+
+    " filter by subdirectory name
+    let l:dirend0 = a:base[:l:pos]
+    if a:user
+        let l:dirend1 = fnamemodify(a:dir.'/'.l:dirend0, ':p')
+    else
+        let l:dirend1 = l:dirend0
+    endif
+    if l:sl1 == '/'
+        let l:dirend2 = substitute(l:dirend1, "\\\\", "/", "g")
+    else
+        let l:dirend2 = escape(l:dirend1, '\')
+    endif
+    if a:user
+        call filter(
+                \ l:inclst,
+                \ 'v:val[0]."/".v:val[1] =~ "^".l:dirend2."\\($\\|[\\/]*.*\\)"')
+    else
+        call filter(l:inclst, 'v:val[0] =~ "'.l:sl1.'".l:dirend2."\\?$"')
+    endif
+
+    " move end of each path to the beginning of filename
+    let l:cutidx = - (l:pos + 2)
+    if !empty(l:inclst) && l:inclst[0][0][l:cutidx + 1:] != l:dirend0
+                      \ && a:user
+        let l:path = s:ICGetDir()
+        call map(l:inclst, '[l:path, l:dirend0.v:val[1]]')
+    else
+        call map(l:inclst, '[v:val[0][:l:cutidx], l:dirend0.v:val[1]]')
     endif
 
     return l:inclst
@@ -274,8 +322,13 @@ endfunction
 " everywhere in path except '.'
 function! s:ICGetList(user, base)
     if a:user
-        let l:dir = expand('%:h:p')
-        return s:ICFindIncludes(1, [l:dir] + s:ICGetSubDirs([l:dir], a:base))
+        let l:dir = s:ICGetDir()
+        let l:dirs = [l:dir]
+        if exists('b:inccomplete_root')
+            let l:dirs = [b:inccomplete_root] + l:dirs
+        endif
+        let l:dirs += s:ICGetSubDirs(l:dirs, a:base)
+        return s:ICFindIncludes(1, l:dirs)
     endif
 
     " prepare list of directories
@@ -299,6 +352,22 @@ function! s:ICGetList(user, base)
     endfor
 
     return l:result
+endfunction
+
+" gets directory of the current buffer
+function! s:ICGetDir()
+    let l:curbuf = s:ICGetBufferName()
+    let l:dir = fnamemodify(l:curbuf, ':p:h')
+    return l:dir
+endfunction
+
+" gets name of the current buffer
+function! s:ICGetBufferName()
+    let l:curbuf = expand('%:p')
+    if empty(l:curbuf)
+        let l:curbuf = getcwd() . '/vim_buffer_without_name_' . bufnr('%')
+    endif
+    return l:curbuf
 endfunction
 
 " gets list of header files using find
@@ -335,7 +404,6 @@ function! s:ICFindIncludes(user, pathlst)
         let l:substcmd = 'substitute(shellescape(v:val), ''\(.*\)\\\"$'','.
                        \ ' "\\1\"", "")'
 
-
         let l:pathstr = join(map(copy(a:pathlst), l:substcmd), ' ')
         let l:iregex = ' -iregex '.shellescape(l:regex)
         let l:dirs = g:inccomplete_showdirs ? ' -or -type d' : ''
@@ -347,6 +415,9 @@ function! s:ICFindIncludes(user, pathlst)
 
     " prepare a:pathlst by forming regexps
     for l:i in range(len(a:pathlst))
+        if a:pathlst[i][-1:] == '/'
+            let a:pathlst[i] = a:pathlst[i][:-2]
+        endif
         let g:inccomplete_cache[a:pathlst[i]] = []
         let l:tmp = substitute(a:pathlst[i], '\', '/', 'g')
         let a:pathlst[i] = [a:pathlst[i], '^'.escape(l:tmp, '.')]
@@ -356,20 +427,24 @@ function! s:ICFindIncludes(user, pathlst)
     let l:result = []
     for l:file in l:foundlst
         let l:file = substitute(l:file, '\', '/', 'g')
-        " find appropriate path
-        let l:pathlst = filter(copy(a:pathlst), 'l:file =~ v:val[1]')
+        if l:file[-1:] == '/'
+            let l:file = l:file[:-2]
+        endif
+        " find appropriate parent path ("." at the end forbids exact match)
+        let l:pathlst = filter(copy(a:pathlst),
+                             \ 'fnamemodify(l:file, ":h") == v:val[0]')
         if empty(l:pathlst)
             continue
         endif
-        let l:incpath = l:pathlst[0]
+        let l:incpath = l:pathlst[0][0]
         " add entry to list
-        let l:left = l:file[len(l:incpath[0]):]
+        let l:left = l:file[len(l:incpath):]
         if l:left[0] == '/' || l:left[0] == '\'
             let l:left = l:left[1:]
         endif
-        call add(l:result, [l:incpath[0], l:left])
+        call add(l:result, [l:incpath, l:left])
         " and to cache
-        call add(g:inccomplete_cache[l:incpath[0]], l:left)
+        call add(g:inccomplete_cache[l:incpath], l:left)
     endfor
     return l:result
 endfunction
@@ -377,10 +452,18 @@ endfunction
 " retrieves include directories from b:clang_user_options and
 " g:clang_user_options
 function! s:ICGetClangIncludes()
-    if !exists('b:clang_user_options') || !exists('g:clang_user_options')
+    let l:opts = ''
+    if exists('b:clang_user_options')
+        let l:opts .= b:clang_user_options.' '
+    endif
+    if exists('g:clang_user_options')
+        let l:opts .= g:clang_user_options.' '
+    endif
+    if empty(l:opts)
         return []
     endif
-    let l:lst = split(b:clang_user_options.' '.g:clang_user_options, ' ')
+
+    let l:lst = split(l:opts, ' ')
     let l:lst = filter(l:lst, 'v:val =~ "\\C^-I"')
     let l:lst = map(l:lst, 'v:val[2:]')
     let l:lst = map(l:lst, 'fnamemodify(v:val, ":p")')
